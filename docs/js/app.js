@@ -193,11 +193,27 @@
     clear(t).appendChild(el("div", { class: "empty" }, [el("b", { text: "Не получилось открыть" }), el("span", { text: text })]));
   }
 
+  // Вкладки в отдельных файлах (js/shifts.js и т. д.) берут общие функции отсюда
+  // и просят вызвать их, когда данные пользователя загружены (и при каждой смене режима просмотра).
+  var readyHandlers = [];
+  function onReady(fn) {
+    readyHandlers.push(fn);
+    if (state.me) fn();
+  }
+  window.App = {
+    state: state, $: $, el: el, clear: clear, api: api, toast: toast, haptic: haptic, onReady: onReady,
+    confirm: function (text, cb) {
+      if (tg && tg.showConfirm) tg.showConfirm(text, function (ok) { if (ok) cb(); });
+      else if (window.confirm(text)) cb();
+    },
+  };
+
   function boot() {
     api("me").then(function (me) {
       state.me = me;
       applyTheme(me.settings.theme);
       renderBanner(); renderToday(); renderSettings();
+      readyHandlers.forEach(function (fn) { fn(); });
     }).catch(function (e) { showFatal(e.message); });
   }
 
