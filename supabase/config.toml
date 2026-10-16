@@ -1,0 +1,3 @@
+# Вход проверяется подписью Telegram внутри функции, поэтому проверка JWT отключена.
+[functions.api]
+verify_jwt = false
