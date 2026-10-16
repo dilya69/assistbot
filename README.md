@@ -24,8 +24,8 @@ supabase/functions/api/    серверная функция: проверка �
    - `ADMIN_TG_ID`: твой Telegram-id (число, узнать можно у бота @userinfobot).
 
 ### 3. Приложение
-1. В `web/js/config.js` замени `YOUR-PROJECT-REF` на ref проекта (адрес `https://<ref>.supabase.co/functions/v1/api`).
-2. GitHub Pages: Settings, Pages, ветка main, папка `/web` (или перенеси `web` в корень).
+1. В `docs/js/config.js` замени `YOUR-PROJECT-REF` на ref проекта (адрес `https://<ref>.supabase.co/functions/v1/api`).
+2. GitHub Pages: Settings, Pages, ветка main, папка `/docs`.
 3. Адрес должен быть `https://...`, иначе Telegram не откроет.
 
 ### 4. Бот
