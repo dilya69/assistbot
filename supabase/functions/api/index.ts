@@ -4,13 +4,16 @@
 //
 // Секреты (supabase secrets set ...):
 //   BOT_TOKEN      токен бота от BotFather
-//   ADMIN_TG_ID    Telegram-id администратора (тебя)
+//   ADMIN_TG_ID    Telegram-id администраторов через запятую: 111111,222222
 // SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY Supabase подставляет сам.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 const BOT_TOKEN = Deno.env.get("BOT_TOKEN") ?? "";
-const ADMIN_TG_ID = Number(Deno.env.get("ADMIN_TG_ID") ?? "0");
+// Администраторов может быть несколько: ADMIN_TG_ID="111111,222222"
+const ADMIN_IDS = new Set(
+  (Deno.env.get("ADMIN_TG_ID") ?? "").split(",").map((x) => Number(x.trim())).filter((n) => n > 0),
+);
 const MAX_AUTH_AGE_SEC = 24 * 60 * 60;
 
 const db = createClient(
@@ -90,7 +93,7 @@ type DbUser = {
 };
 
 async function getOrCreateUser(tg: TgUser): Promise<DbUser> {
-  const role = tg.id === ADMIN_TG_ID ? "admin" : "user";
+  const role = ADMIN_IDS.has(tg.id) ? "admin" : "user";
   const { data: found } = await db.from("users").select("*").eq("tg_id", tg.id).maybeSingle();
   if (found) {
     if (found.role !== role || found.first_name !== (tg.first_name ?? null)) {
