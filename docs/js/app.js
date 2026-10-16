@@ -105,6 +105,17 @@
       el("div", { class: "row" }, [el("span", { class: "grow", text: "Часовой пояс" }), el("span", { class: "sub", text: u.timezone })]),
     ]));
 
+    var me = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+    if (v.is_self && me && me.id) {
+      gap.appendChild(el("div", { class: "card" }, [
+        el("h3", { text: "Твой Telegram-id" }),
+        el("div", { class: "row" }, [
+          el("span", { class: "grow ttl", style: "font-size:20px;font-weight:600", text: String(me.id) }),
+        ]),
+        el("div", { class: "sub", text: "Нужен, чтобы выдать доступ администратора" }),
+      ]));
+    }
+
     var themeCard = el("div", { class: "card" }, [el("h3", { text: "Оформление" })]);
     var wrap = el("div", { style: "display:flex;flex-wrap:wrap;gap:6px" });
     THEMES.forEach(function (t) {
