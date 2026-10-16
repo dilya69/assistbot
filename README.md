@@ -21,7 +21,7 @@ supabase/functions/api/    серверная функция: проверка �
    В настройках функции отключи «Verify JWT», потому что вход проверяется подписью Telegram.
 5. Secrets функции:
    - `BOT_TOKEN`: токен бота от BotFather;
-   - `ADMIN_TG_ID`: Telegram-id администраторов через запятую, например `111111,222222` (узнать id можно у бота @userinfobot).
+   - `ADMIN_TG_ID` необязателен. Администраторов можно назначить в базе: `update users set role = 'admin' where first_name = '...';` после того, как они один раз откроют приложение.
 
 ### 3. Приложение
 1. В `docs/js/config.js` замени `YOUR-PROJECT-REF` на ref проекта (адрес `https://<ref>.supabase.co/functions/v1/api`).

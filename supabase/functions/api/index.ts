@@ -4,7 +4,7 @@
 //
 // Секреты (supabase secrets set ...):
 //   BOT_TOKEN      токен бота от BotFather
-//   ADMIN_TG_ID    Telegram-id администраторов через запятую: 111111,222222
+//   ADMIN_TG_ID    (необязательно) Telegram-id администраторов через запятую; роль можно выдать и в базе
 // SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY Supabase подставляет сам.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -93,10 +93,12 @@ type DbUser = {
 };
 
 async function getOrCreateUser(tg: TgUser): Promise<DbUser> {
-  const role = ADMIN_IDS.has(tg.id) ? "admin" : "user";
+  // Роль админа хранится в базе (users.role). Секрет ADMIN_TG_ID только добавляет права, не отнимает.
+  const envAdmin = ADMIN_IDS.has(tg.id);
   const { data: found } = await db.from("users").select("*").eq("tg_id", tg.id).maybeSingle();
   if (found) {
-    if (found.role !== role || found.first_name !== (tg.first_name ?? null)) {
+    const role = envAdmin ? "admin" : found.role;
+    if (found.role !== role || found.first_name !== (tg.first_name ?? null) || found.bot_blocked) {
       const { data } = await db.from("users")
         .update({ role, first_name: tg.first_name ?? null, bot_blocked: false })
         .eq("id", found.id).select("*").single();
@@ -104,6 +106,7 @@ async function getOrCreateUser(tg: TgUser): Promise<DbUser> {
     }
     return found as DbUser;
   }
+  const role = envAdmin ? "admin" : "user";
   const { data, error } = await db.from("users")
     .insert({ tg_id: tg.id, first_name: tg.first_name ?? null, role })
     .select("*").single();
