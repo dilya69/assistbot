@@ -4,7 +4,12 @@
   "use strict";
 
   var App = window.App;
-  if (!App) return;
+  if (!App) {
+    // app.js из кэша старый и не знает про вкладки: просим обновить, а не висим на «Загрузке»
+    var stub = document.getElementById("shiftsBody");
+    if (stub) stub.textContent = "Версия приложения устарела. Закрой его и открой заново из бота.";
+    return;
+  }
   var el = App.el, clear = App.clear, api = App.api, toast = App.toast, haptic = App.haptic, state = App.state;
 
   var MONTHS = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
@@ -92,6 +97,13 @@
   }
 
   function render() {
+    try { draw(); } catch (e) {
+      var r = clear(App.$("shiftsBody"));
+      r.appendChild(el("div", { class: "empty" }, [el("b", { text: "Ошибка экрана смен" }), el("span", { text: String(e && e.message || e) })]));
+    }
+  }
+
+  function draw() {
     var root = clear(App.$("shiftsBody"));
     if (!S.data) {
       if (S.err) {
