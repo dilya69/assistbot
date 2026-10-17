@@ -293,6 +293,9 @@
     if (!document.hidden && App.state.me && H.data && Date.now() - H.at > 60000) load();
   });
 
+  // для экрана «Сегодня» (js/today.js): общие фразы и обновление этой вкладки после отметок
+  App.habits = { reload: load, phrases: PHRASES };
+
   App.onReady(function () {
     H.data = null; H.err = null;
     render();

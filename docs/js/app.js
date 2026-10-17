@@ -61,6 +61,9 @@
   }
 
   /* ───────── вкладки ───────── */
+  var tabHandlers = [];
+  function onTab(fn) { tabHandlers.push(fn); }
+
   function go(tab) {
     state.tab = tab;
     document.querySelectorAll(".view").forEach(function (v) { v.hidden = v.getAttribute("data-tab") !== tab; });
@@ -70,21 +73,17 @@
     });
     try { sessionStorage.setItem("tab", tab); } catch (e) {}
     haptic("light");
+    tabHandlers.forEach(function (fn) { try { fn(tab); } catch (e) {} });
   }
 
   /* ───────── экраны ───────── */
   var MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
   var DAYS = ["Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
 
+  // Содержимое экрана «Сегодня» рисует js/today.js; здесь только дата в заголовке
   function renderToday() {
     var now = new Date();
     $("todayDate").textContent = DAYS[now.getDay()] + ", " + now.getDate() + " " + MONTHS[now.getMonth()];
-    var body = clear($("todayBody"));
-    var name = state.me.user.first_name;
-    body.appendChild(el("div", { class: "card" }, [
-      el("div", { text: name ? "Привет, " + name : "Привет" }),
-      el("div", { class: "sub", text: "Связь с сервером в порядке. Вкладки наполним по шагам." }),
-    ]));
   }
 
   var THEMES = [["auto", "Как в Telegram"], ["light", "Светлая"], ["dark", "Тёмная"], ["thrones", "Королевства"], ["dead", "Выжившие"]];
@@ -202,6 +201,7 @@
   }
   window.App = {
     state: state, $: $, el: el, clear: clear, api: api, toast: toast, haptic: haptic, onReady: onReady,
+    go: go, onTab: onTab,
     confirm: function (text, cb) {
       if (tg && tg.showConfirm) tg.showConfirm(text, function (ok) { if (ok) cb(); });
       else if (window.confirm(text)) cb();

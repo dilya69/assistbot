@@ -118,3 +118,22 @@ h3{margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-tran
 .wk.open .wm{border-style:dashed;border-color:var(--muted)}
 .wk.off{opacity:.35}
 .wk.now{border-color:var(--line);background:var(--bg)}
+
+/* ───────── сегодня ───────── */
+.tsec{display:flex;flex-direction:column;gap:8px}
+.tsec-hd{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 2px}
+.tsec-hd h3{margin:0}
+.tsec-hd .cnt{font-size:12px;font-weight:600;color:var(--muted)}
+.tsec-hd .cnt.full{color:var(--ok)}
+.tlist{padding-top:4px;padding-bottom:4px}
+.trow{display:flex;align-items:center;gap:12px;padding:10px 0;min-width:0}
+.trow + .trow{border-top:1px solid var(--line)}
+.trow.done .ttl{color:var(--muted);text-decoration:line-through}
+.trow .htext{cursor:default}
+.rtime{flex:none;min-width:44px;font-weight:600;font-variant-numeric:tabular-nums}
+.tblock{border-radius:var(--r-card);padding:14px 16px;display:flex;flex-direction:column;gap:3px}
+.tblock .tt{font-weight:600;font-size:17px}
+.tblock .ts{font-size:13px;opacity:.85}
+.tblock.work{background:var(--work);color:var(--work-ink)}
+.tblock.vac{background:var(--vac);color:var(--vac-ink)}
+.tblock.sick{background:var(--sick);color:var(--sick-ink)}
