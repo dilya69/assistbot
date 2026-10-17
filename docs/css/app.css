@@ -96,3 +96,25 @@ h3{margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-tran
 .item .ttl{font-weight:500}
 .acts{display:flex;gap:6px;flex-wrap:wrap}
 .add-grid{display:grid;grid-template-columns:1fr;gap:8px}
+
+/* ───────── привычки ───────── */
+.habit{display:flex;flex-direction:column;gap:10px}
+.check{flex:none;width:46px;height:46px;border-radius:50%;border:2px solid var(--line);background:transparent;color:var(--work-ink);
+  font-size:22px;font-weight:600;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
+.check.on{background:var(--work);border-color:var(--work-ink)}
+.check.bad{background:var(--sick);border-color:var(--sick-ink);color:var(--sick-ink)}
+.check.static{font-size:17px;cursor:default}
+.check[disabled]{opacity:.7;cursor:default}
+.htext{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;text-align:left;background:none;border:0;padding:0;color:var(--ink)}
+.htext .ttl{font-weight:500;overflow-wrap:anywhere}
+.hweek{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.wk{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0;padding:4px 0;border:1.5px solid transparent;
+  border-radius:var(--r-cell);background:transparent;color:var(--muted)}
+.wk .wl{font-size:10px}
+.wk .wm{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:600;color:var(--ink)}
+.wk.done .wm,.wk.clean .wm{background:var(--work);border-color:var(--work-ink);color:var(--work-ink)}
+.wk.slip .wm{background:var(--sick);border-color:var(--sick-ink);color:var(--sick-ink)}
+.wk.open .wm{border-style:dashed;border-color:var(--muted)}
+.wk.off{opacity:.35}
+.wk.now{border-color:var(--line);background:var(--bg)}

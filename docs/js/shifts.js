@@ -508,6 +508,9 @@
     });
   }
 
+  // Шторки и поля форм используют и другие вкладки (js/habits.js)
+  App.ui = { show: show, head: head, field: field, chipRow: chipRow, formButtons: formButtons, closeSheet: closeSheet, run: run };
+
   /* ───────── запуск ───────── */
   App.onReady(function () {
     S.data = null; S.err = null; S.select = false; S.picked = {};

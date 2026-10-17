@@ -280,6 +280,56 @@ function expandReminder(r: ReminderRow, from: string, to: string, tz: string) {
 }
 // END-DATES
 
+// BEGIN-HABITS (чистая логика привычек: серии и неделя; без обращений к базе, проверяется отдельным тестом)
+const HABIT_HISTORY_DAYS = 400;
+const isoDow = (date: string) => { const d = new Date(dayMs(date)).getUTCDay(); return d === 0 ? 7 : d; };
+
+type HabitLite = { kind: string; days: number[]; start_date: string };
+
+// «Делать»: день входит в расписание. «Не делать»: каждый день с начала.
+function habitScheduled(h: HabitLite, date: string): boolean {
+  if (date < h.start_date) return false;
+  return h.kind === "avoid" ? true : h.days.includes(isoDow(date));
+}
+
+// logs: дата -> 'done' | 'slip'. Серия «делать»: подряд выполненные дни расписания (дни вне расписания
+// серию не рвут, сегодняшний день не рвёт её до конца дня). Серия «не делать»: дней без срыва, включая сегодня.
+function habitStreaks(h: HabitLite, logs: Map<string, string>, today: string) {
+  const from = Math.max(dayMs(h.start_date), dayMs(today) - HABIT_HISTORY_DAYS * DAY_MS);
+  let run = 0, best = 0;
+  for (let t = from; t <= dayMs(today); t += DAY_MS) {
+    const date = ymd(t);
+    const st = logs.get(date);
+    if (h.kind === "avoid") {
+      run = st === "slip" ? 0 : run + 1;
+      if (run > best) best = run;
+    } else {
+      if (!habitScheduled(h, date)) continue;
+      if (st === "done") { run++; if (run > best) best = run; }
+      else if (date !== today) run = 0;
+    }
+  }
+  return { current: run, best };
+}
+
+// Семь последних дней для полоски на карточке.
+// «делать»: done | miss | open (сегодня, ещё можно) | off (вне расписания);
+// «не делать»: clean | slip | off (до начала).
+function habitWeek(h: HabitLite, logs: Map<string, string>, today: string) {
+  const out: { date: string; state: string }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const date = addDays(today, -i);
+    const st = logs.get(date);
+    let state: string;
+    if (h.kind === "avoid") state = date < h.start_date ? "off" : st === "slip" ? "slip" : "clean";
+    else if (!habitScheduled(h, date)) state = "off";
+    else state = st === "done" ? "done" : date === today ? "open" : "miss";
+    out.push({ date, state });
+  }
+  return out;
+}
+// END-HABITS
+
 // результат запроса к базе: ошибка базы становится ошибкой сервера (в журнал)
 function must<T>(res: { data: T[] | null; error: { message: string } | null }): T[] {
   if (res.error) throw new Error(res.error.message);
@@ -288,6 +338,16 @@ function must<T>(res: { data: T[] | null; error: { message: string } | null }): 
 
 const REPEATS = ["none", "daily", "weekly", "monthly"];
 const MAX_SHIFT_TYPES = 20;
+const MAX_HABITS = 30;
+const HABIT_SHIFT_MODES = ["normal", "evening", "silent"];
+
+// дни недели привычки: числа 1..7 (понедельник = 1), хотя бы один
+function reqDays(v: unknown): number[] {
+  if (!Array.isArray(v)) throw new HttpError(400, "Выбери дни недели");
+  const days = [...new Set(v.map(Number))].filter((n) => Number.isInteger(n) && n >= 1 && n <= 7).sort();
+  if (!days.length) throw new HttpError(400, "Выбери хотя бы один день недели");
+  return days;
+}
 
 // ───────── действия ─────────
 const SETTINGS_FIELDS = [
@@ -523,6 +583,127 @@ const actions: Record<string, Handler> = {
     const { error } = await db.from("reminders").delete()
       .eq("id", reqId(p.id)).eq("user_id", ctx.target.id);
     if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  // ───────── привычки ─────────
+  // Всё одним запросом: активные привычки с сериями и полоской недели, плюс короткий список архива.
+  async "habits.list"(ctx) {
+    const uid = ctx.target.id;
+    const today = localParts(new Date(), ctx.target.timezone).date;
+    const since = addDays(today, -HABIT_HISTORY_DAYS);
+    const [hs, ls] = await Promise.all([
+      db.from("habits")
+        .select("id, name, kind, days, remind_time, shift_mode, evening_time, start_date, best_streak, total_done, archived_at")
+        .eq("user_id", uid).order("created_at"),
+      db.from("habit_logs").select("habit_id, log_date, status").eq("user_id", uid).gte("log_date", since),
+    ]);
+    const logsBy = new Map<string, Map<string, string>>();
+    for (const l of must(ls)) {
+      const m = logsBy.get(l.habit_id) ?? new Map<string, string>();
+      // если за день есть и «сделано», и «срыв», срыв важнее
+      if (m.get(l.log_date) !== "slip") m.set(l.log_date, l.status);
+      logsBy.set(l.habit_id, m);
+    }
+    const habits: unknown[] = [];
+    const archived: unknown[] = [];
+    for (const h of must(hs)) {
+      if (h.archived_at) { archived.push({ id: h.id, name: h.name, kind: h.kind }); continue; }
+      const lite = { kind: h.kind, days: h.days as number[], start_date: h.start_date };
+      const logs = logsBy.get(h.id) ?? new Map<string, string>();
+      const st = habitStreaks(lite, logs, today);
+      const best = Math.max(st.best, h.best_streak ?? 0);
+      if (best > (h.best_streak ?? 0)) {
+        await db.from("habits").update({ best_streak: best }).eq("id", h.id);
+      }
+      const done = [...logs.values()].filter((v) => v === "done").length;
+      habits.push({
+        id: h.id, name: h.name, kind: h.kind, days: h.days, start_date: h.start_date,
+        remind_time: h.remind_time ? String(h.remind_time).slice(0, 5) : null,
+        shift_mode: h.shift_mode, evening_time: String(h.evening_time).slice(0, 5),
+        streak: st.current, best,
+        total: h.kind === "do" ? (h.total_done ?? 0) + done : null,
+        today: logs.get(today) ?? null,
+        week: habitWeek(lite, logs, today),
+      });
+    }
+    return { today, habits, archived };
+  },
+
+  // Тип и дата начала при изменении не меняются: иначе отметки потеряют смысл.
+  async "habits.save"(ctx, p) {
+    assertWritable(ctx);
+    const name = reqText(p.name, "Название", 80) as string;
+    const shift_mode = String(p.shift_mode ?? "normal");
+    if (!HABIT_SHIFT_MODES.includes(shift_mode)) throw new HttpError(400, "Неверный режим в дни смен");
+    const remind_time = optTime(p.remind_time, "Время напоминания");
+    const evening_time = p.evening_time ? reqTime(p.evening_time, "Вечернее время") : "21:30";
+
+    if (p.id) {
+      const id = reqId(p.id);
+      const { data: cur } = await db.from("habits").select("kind").eq("id", id).eq("user_id", ctx.target.id).maybeSingle();
+      if (!cur) throw new HttpError(404, "Привычка не найдена");
+      const row: Record<string, unknown> = { name, remind_time, shift_mode, evening_time };
+      if (cur.kind === "do") row.days = reqDays(p.days);
+      const { error } = await db.from("habits").update(row).eq("id", id).eq("user_id", ctx.target.id);
+      if (error) throw new Error(error.message);
+      return { ok: true };
+    }
+
+    const kind = String(p.kind ?? "");
+    if (kind !== "do" && kind !== "avoid") throw new HttpError(400, "Выбери: делать или не делать");
+    const { count } = await db.from("habits").select("id", { count: "exact", head: true })
+      .eq("user_id", ctx.target.id).is("archived_at", null);
+    if ((count ?? 0) >= MAX_HABITS) throw new HttpError(400, "Привычек уже достаточно, убери лишние в архив");
+    const { error } = await db.from("habits").insert({
+      user_id: ctx.target.id, name, kind, remind_time, shift_mode, evening_time,
+      days: kind === "do" ? reqDays(p.days) : [1, 2, 3, 4, 5, 6, 7],
+      start_date: localParts(new Date(), ctx.target.timezone).date,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  // status: «done» для «делать», «slip» для «не делать», null снимает отметку. Отмечать можно последние 14 дней.
+  async "habits.mark"(ctx, p) {
+    assertWritable(ctx);
+    const id = reqId(p.id);
+    const date = reqDate(p.date, "Дата");
+    const { data: h } = await db.from("habits").select("id, kind, start_date, archived_at")
+      .eq("id", id).eq("user_id", ctx.target.id).maybeSingle();
+    if (!h || h.archived_at) throw new HttpError(404, "Привычка не найдена");
+    const today = localParts(new Date(), ctx.target.timezone).date;
+    if (date > today) throw new HttpError(400, "Будущие дни отмечать нельзя");
+    if (date < addDays(today, -14)) throw new HttpError(400, "Отметить можно только последние две недели");
+    if (date < h.start_date) throw new HttpError(400, "Привычка тогда ещё не началась");
+    const status = p.status === null || p.status === undefined || p.status === "" ? null : String(p.status);
+    if (status !== null && status !== (h.kind === "avoid" ? "slip" : "done")) throw new HttpError(400, "Неверная отметка");
+    const del = await db.from("habit_logs").delete().eq("habit_id", id).eq("log_date", date);
+    if (del.error) throw new Error(del.error.message);
+    if (status) {
+      const { error } = await db.from("habit_logs").insert({ habit_id: id, user_id: ctx.target.id, log_date: date, status });
+      if (error) throw new Error(error.message);
+    }
+    return { ok: true };
+  },
+
+  async "habits.archive"(ctx, p) {
+    assertWritable(ctx);
+    const archived = p.archived !== false;
+    const { error } = await db.from("habits")
+      .update({ archived_at: archived ? new Date().toISOString() : null })
+      .eq("id", reqId(p.id)).eq("user_id", ctx.target.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  // Насовсем удалить можно только привычку из архива (отметки удаляются вместе с ней).
+  async "habits.delete"(ctx, p) {
+    assertWritable(ctx);
+    const { data, error } = await db.from("habits").delete()
+      .eq("id", reqId(p.id)).eq("user_id", ctx.target.id).not("archived_at", "is", null).select("id");
+    if (error) throw new Error(error.message);
+    if (!data?.length) throw new HttpError(400, "Сначала убери привычку в архив");
     return { ok: true };
   },
 
