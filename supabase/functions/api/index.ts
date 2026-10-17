@@ -93,7 +93,8 @@ type DbUser = {
 };
 
 async function getOrCreateUser(tg: TgUser): Promise<DbUser> {
-  // Роль админа хранится в базе (users.role). Секрет ADMIN_TG_ID только добавляет права, не отнимает.
+  // Доступ закрытый: работают только те, кто уже есть в таблице users.
+  // Новую запись можно создать лишь тому, чей Telegram-id указан в секрете ADMIN_TG_ID.
   const envAdmin = ADMIN_IDS.has(tg.id);
   const { data: found } = await db.from("users").select("*").eq("tg_id", tg.id).maybeSingle();
   if (found) {
@@ -106,9 +107,9 @@ async function getOrCreateUser(tg: TgUser): Promise<DbUser> {
     }
     return found as DbUser;
   }
-  const role = envAdmin ? "admin" : "user";
+  if (!envAdmin) throw new HttpError(403, "Это закрытое приложение");
   const { data, error } = await db.from("users")
-    .insert({ tg_id: tg.id, first_name: tg.first_name ?? null, role })
+    .insert({ tg_id: tg.id, first_name: tg.first_name ?? null, role: "admin" })
     .select("*").single();
   if (error) throw error;
   await db.from("user_settings").insert({ user_id: data.id });
@@ -123,28 +124,26 @@ async function getOrCreateUser(tg: TgUser): Promise<DbUser> {
   return data as DbUser;
 }
 
-// ───────── контекст запроса: кто смотрит и чьи данные ─────────
-type Ctx = { actor: DbUser; target: DbUser; readOnly: boolean };
+// ───────── контекст запроса: кто работает и чьи данные ─────────
+// Данные общие: если у пользователя указан data_owner_id, он работает с данными владельца
+// (тот же интерфейс, те же записи, правки видны обоим). Режима просмотра нет.
+type Ctx = { actor: DbUser; target: DbUser };
 
-async function buildCtx(actor: DbUser, viewAs?: string): Promise<Ctx> {
-  if (!viewAs || viewAs === actor.id) return { actor, target: actor, readOnly: false };
-  if (actor.role !== "admin") throw new HttpError(403, "Нет доступа");
-  const { data } = await db.from("users").select("*").eq("id", viewAs).maybeSingle();
-  if (!data) throw new HttpError(404, "Пользователь не найден");
-  return { actor, target: data as DbUser, readOnly: true }; // админ только смотрит
+async function buildCtx(actor: DbUser): Promise<Ctx> {
+  const ownerId = actor.data_owner_id as string | null | undefined;
+  if (!ownerId || ownerId === actor.id) return { actor, target: actor };
+  const { data } = await db.from("users").select("*").eq("id", ownerId).maybeSingle();
+  if (!data) throw new HttpError(500, "Не найден владелец данных");
+  return { actor, target: data as DbUser };
 }
 
-// Вкладка «Цикл» для чужого просмотра закрыта, пока она сама не включила обмен.
+// Вкладка «Цикл» закрыта для второго человека, пока владелец сама не включила обмен.
 // Эта проверка нужна в каждом обработчике данных цикла.
 export async function assertCycleAccess(ctx: Ctx) {
   if (ctx.actor.id === ctx.target.id) return;
   const { data } = await db.from("user_settings")
     .select("cycle_share_partner").eq("user_id", ctx.target.id).single();
   if (!data?.cycle_share_partner) throw new HttpError(403, "Цикл закрыт владельцем");
-}
-
-function assertWritable(ctx: Ctx) {
-  if (ctx.readOnly) throw new HttpError(403, "Режим просмотра: изменения отключены");
 }
 
 // ───────── даты и время ─────────
@@ -380,12 +379,11 @@ const actions: Record<string, Handler> = {
         paused_until: ctx.target.paused_until, bot_blocked: ctx.target.bot_blocked,
       },
       settings,
-      viewer: { role: ctx.actor.role, read_only: ctx.readOnly, is_self: ctx.actor.id === ctx.target.id },
+      viewer: { role: ctx.actor.role, is_self: ctx.actor.id === ctx.target.id },
     };
   },
 
   async "settings.update"(ctx, p) {
-    assertWritable(ctx);
     const u = pick(p, USER_FIELDS);
     const s = pick(p, SETTINGS_FIELDS);
     if (Object.keys(u).length) {
@@ -443,7 +441,6 @@ const actions: Record<string, Handler> = {
 
   // Одна и та же смена на несколько дат сразу (мультивыбор). Смена на дату одна: новая заменяет старую.
   async "shifts.save"(ctx, p) {
-    assertWritable(ctx);
     const tz = ctx.target.timezone;
     const dates = reqDates(p.dates);
     const start = reqTime(p.start, "Начало смены");
@@ -474,7 +471,6 @@ const actions: Record<string, Handler> = {
   },
 
   async "shifts.delete"(ctx, p) {
-    assertWritable(ctx);
     const dates = reqDates(p.dates);
     const { error } = await db.from("shifts").delete().eq("user_id", ctx.target.id).in("shift_date", dates);
     if (error) throw new Error(error.message);
@@ -482,7 +478,6 @@ const actions: Record<string, Handler> = {
   },
 
   async "shift_types.save"(ctx, p) {
-    assertWritable(ctx);
     const row = {
       name: reqText(p.name, "Название", 40) as string,
       default_start: optTime(p.default_start, "Начало"),
@@ -504,7 +499,6 @@ const actions: Record<string, Handler> = {
 
   // Старые смены не меняются: у них остаётся копия названия (type_name).
   async "shift_types.delete"(ctx, p) {
-    assertWritable(ctx);
     const { error } = await db.from("shift_types").delete()
       .eq("id", reqId(p.id)).eq("user_id", ctx.target.id);
     if (error) throw new Error(error.message);
@@ -512,7 +506,6 @@ const actions: Record<string, Handler> = {
   },
 
   async "absences.save"(ctx, p) {
-    assertWritable(ctx);
     const kind = String(p.kind ?? "");
     if (kind !== "vacation" && kind !== "sick") throw new HttpError(400, "Выбери: отпуск или больничный");
     const start_date = reqDate(p.start_date, "Первый день");
@@ -532,7 +525,6 @@ const actions: Record<string, Handler> = {
   },
 
   async "absences.delete"(ctx, p) {
-    assertWritable(ctx);
     const { error } = await db.from("absences").delete()
       .eq("id", reqId(p.id)).eq("user_id", ctx.target.id);
     if (error) throw new Error(error.message);
@@ -541,7 +533,6 @@ const actions: Record<string, Handler> = {
 
   // remind_at — момент самого события по местному времени; за сколько минут напомнить, хранится отдельно
   async "reminders.save"(ctx, p) {
-    assertWritable(ctx);
     const date = reqDate(p.date, "Дата");
     const time = reqTime(p.time, "Время");
     const repeat = String(p.repeat ?? "none");
@@ -570,7 +561,6 @@ const actions: Record<string, Handler> = {
   },
 
   async "reminders.done"(ctx, p) {
-    assertWritable(ctx);
     const { error } = await db.from("reminders")
       .update({ done_at: p.done === false ? null : new Date().toISOString() })
       .eq("id", reqId(p.id)).eq("user_id", ctx.target.id);
@@ -579,7 +569,6 @@ const actions: Record<string, Handler> = {
   },
 
   async "reminders.delete"(ctx, p) {
-    assertWritable(ctx);
     const { error } = await db.from("reminders").delete()
       .eq("id", reqId(p.id)).eq("user_id", ctx.target.id);
     if (error) throw new Error(error.message);
@@ -632,7 +621,6 @@ const actions: Record<string, Handler> = {
 
   // Тип и дата начала при изменении не меняются: иначе отметки потеряют смысл.
   async "habits.save"(ctx, p) {
-    assertWritable(ctx);
     const name = reqText(p.name, "Название", 80) as string;
     const shift_mode = String(p.shift_mode ?? "normal");
     if (!HABIT_SHIFT_MODES.includes(shift_mode)) throw new HttpError(400, "Неверный режим в дни смен");
@@ -666,7 +654,6 @@ const actions: Record<string, Handler> = {
 
   // status: «done» для «делать», «slip» для «не делать», null снимает отметку. Отмечать можно последние 14 дней.
   async "habits.mark"(ctx, p) {
-    assertWritable(ctx);
     const id = reqId(p.id);
     const date = reqDate(p.date, "Дата");
     const { data: h } = await db.from("habits").select("id, kind, start_date, archived_at")
@@ -688,7 +675,6 @@ const actions: Record<string, Handler> = {
   },
 
   async "habits.archive"(ctx, p) {
-    assertWritable(ctx);
     const archived = p.archived !== false;
     const { error } = await db.from("habits")
       .update({ archived_at: archived ? new Date().toISOString() : null })
@@ -699,19 +685,11 @@ const actions: Record<string, Handler> = {
 
   // Насовсем удалить можно только привычку из архива (отметки удаляются вместе с ней).
   async "habits.delete"(ctx, p) {
-    assertWritable(ctx);
     const { data, error } = await db.from("habits").delete()
       .eq("id", reqId(p.id)).eq("user_id", ctx.target.id).not("archived_at", "is", null).select("id");
     if (error) throw new Error(error.message);
     if (!data?.length) throw new HttpError(400, "Сначала убери привычку в архив");
     return { ok: true };
-  },
-
-  // только для администратора: список пользователей без их данных
-  async "admin.users"(ctx) {
-    if (ctx.actor.role !== "admin") throw new HttpError(403, "Нет доступа");
-    const { data } = await db.from("users").select("id, first_name, role, created_at, bot_blocked").order("created_at");
-    return { users: data ?? [] };
   },
 
   async "admin.status"(ctx) {
@@ -737,7 +715,7 @@ Deno.serve(async (req) => {
 
     const tg = await verifyInitData(req.headers.get("x-init-data") ?? "");
     const actor = await getOrCreateUser(tg);
-    const ctx = await buildCtx(actor, body.view_as);
+    const ctx = await buildCtx(actor);
     return json(await handler(ctx, body.payload ?? {}));
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
