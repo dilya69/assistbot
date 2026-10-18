@@ -47,8 +47,9 @@ h3{margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-tran
 .cal-nav{display:flex;align-items:center;gap:8px}
 .cal-title{flex:1;text-align:center;font-family:var(--font-display);font-size:17px;font-weight:500}
 .icon-btn{width:42px;height:42px;border:0;border-radius:var(--r-ctl);background:var(--surface);font-size:22px;line-height:1;color:var(--ink)}
-.cal{background:var(--surface);border-radius:var(--r-card);padding:10px 6px 12px}
-.cal-wd,.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+/* календарь почти на всю ширину экрана: клетки шире, больше влезает в рамку смены */
+.cal{background:var(--surface);border-radius:var(--r-card);padding:10px 2px 12px;margin:0 -8px}
+.cal-wd,.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
 .cal-wd span{text-align:center;font-size:11px;color:var(--muted);padding:2px 0 6px}
 .day{position:relative;min-height:74px;border:1.5px solid transparent;border-radius:var(--r-cell);background:transparent;
   padding:4px 2px 3px;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0;color:var(--ink)}
@@ -59,7 +60,7 @@ h3{margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-tran
 .day.sick{background:var(--sick);color:var(--sick-ink)}
 .day.sel{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
 .frame{display:flex;flex-direction:column;align-items:center;max-width:100%;border:1.5px solid var(--work-ink);
-  background:var(--work);color:var(--work-ink);border-radius:7px;padding:1px 3px;line-height:1.15}
+  background:var(--work);color:var(--work-ink);border-radius:7px;padding:1px 2px;line-height:1.15}
 .frame .fn{font-size:9px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .frame .fh{font-size:9px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .dot{position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;background:var(--habit-ink)}
