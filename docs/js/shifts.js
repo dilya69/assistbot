@@ -30,7 +30,8 @@
   function parse(s) { var p = s.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
   function longDate(s) { var d = parse(s); return DAYS_LONG[d.getDay()] + ", " + d.getDate() + " " + MONTHS_GEN[d.getMonth()]; }
   function dm(s) { var p = s.split("-"); return p[2] + "." + p[1]; }
-  function shortT(t) { var p = t.split(":"); var h = String(+p[0]); return p[1] === "00" ? h : h + ":" + p[1]; }
+  // время всегда целиком (20:00, 00:15): отрезанные «:00» и «0:15» читались как другое время
+  function shortT(t) { return String(t).slice(0, 5); }
   function hours(s, e) { return shortT(s) + "–" + shortT(e); }
   function readOnly() { return !!(state.me && state.me.viewer.read_only); }
   function advLabel(n) {
@@ -180,7 +181,9 @@
     if (sh) {
       kids.push(el("span", { class: "frame" }, [
         el("span", { class: "fn", text: sh.type_name }),
-        el("span", { class: "fh", text: hours(sh.start, sh.end) }),
+        // в клетке календаря часы в две строки, чтобы целиком влезали в рамку
+        el("span", { class: "fh", text: shortT(sh.start) }),
+        el("span", { class: "fh", text: shortT(sh.end) }),
       ]));
     } else if (ab) {
       kids.push(el("span", { class: "tag", text: ab.kind === "sick" ? "бол." : "отп." }));
@@ -282,7 +285,7 @@
         p.appendChild(el("div", { class: "item" }, [
           el("div", { class: "row" }, [
             el("span", { class: "frame" }, [el("span", { class: "fn", text: sh.type_name }), el("span", { class: "fh", text: hours(sh.start, sh.end) })]),
-            el("span", { class: "grow ttl", text: "Смена " + sh.start + "–" + sh.end + (sh.end <= sh.start ? " (до утра)" : "") }),
+            el("span", { class: "grow ttl", text: "Смена " + sh.start + "–" + sh.end + (sh.end <= sh.start ? " (закончится " + (sh.end < "05:00" ? "после полуночи" : "утром") + ")" : "") }),
           ]),
           sh.comment ? el("div", { class: "sub", text: sh.comment }) : null,
           acts.length ? el("div", { class: "acts" }, acts) : null,

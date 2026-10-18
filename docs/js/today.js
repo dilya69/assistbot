@@ -24,7 +24,7 @@
     return n + " дней";
   }
   function dm(s) { var p = s.split("-"); return p[2] + "." + p[1]; }
-  function shortT(t) { var p = t.split(":"); var h = String(+p[0]); return p[1] === "00" ? h : h + ":" + p[1]; }
+  function shortT(t) { return String(t).slice(0, 5); }
   function hours(s, e) { return shortT(s) + "–" + shortT(e); }
 
   /* ───────── загрузка ───────── */
@@ -191,7 +191,7 @@
       var night = shift.end <= shift.start;
       kids.push(el("div", { class: "tblock work" }, [
         el("div", { class: "tt", text: shift.type_name + " · " + hours(shift.start, shift.end) }),
-        night ? el("div", { class: "ts", text: "Смена закончится утром" }) : null,
+        night ? el("div", { class: "ts", text: "Смена закончится " + (shift.end < "05:00" ? "после полуночи" : "утром") }) : null,
         shift.comment ? el("div", { class: "ts", text: shift.comment }) : null,
       ]));
     }
