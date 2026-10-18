@@ -348,6 +348,70 @@ function reqDays(v: unknown): number[] {
   return days;
 }
 
+// ───────── цикл: прогноз ─────────
+// BEGIN-CYCLE (чистые функции без обращений к базе)
+type CycleRow = { id: string; start_date: string; end_date: string | null };
+const LUTEAL_DAYS = 14;      // от овуляции до следующих месячных
+const FERTILE_BEFORE = 5;    // окно: за 5 дней до овуляции и сутки после
+const FERTILE_AFTER = 1;
+const FORECAST_CYCLES = 3;
+
+function cycleAverages(cycles: CycleRow[], typicalLen: number, typicalPeriod: number) {
+  const asc = [...cycles].sort((a, b) => (a.start_date < b.start_date ? -1 : 1));
+  const lens: number[] = [];
+  for (let i = 1; i < asc.length; i++) {
+    const n = Math.round((dayMs(asc[i].start_date) - dayMs(asc[i - 1].start_date)) / DAY_MS);
+    if (n >= 15 && n <= 60) lens.push(n); // слишком короткие и слишком длинные считаем сбоем записи
+  }
+  const periods = asc.filter((c) => c.end_date)
+    .map((c) => Math.round((dayMs(c.end_date!) - dayMs(c.start_date)) / DAY_MS) + 1)
+    .filter((n) => n >= 1 && n <= 14);
+  const avg = (a: number[], fb: number) => a.length ? Math.round(a.slice(-6).reduce((s, x) => s + x, 0) / Math.min(a.length, 6)) : fb;
+  return { len: avg(lens, typicalLen), period: avg(periods, typicalPeriod), samples: lens.length };
+}
+
+function cyclePredict(cycles: CycleRow[], typicalLen: number, typicalPeriod: number, today: string) {
+  const asc = [...cycles].sort((a, b) => (a.start_date < b.start_date ? -1 : 1));
+  const avg = cycleAverages(asc, typicalLen, typicalPeriod);
+  const last = asc[asc.length - 1];
+  if (!last) return { avg, last_start: null, forecast: [], delay_days: 0, day: null, phase: null, ongoing: false };
+
+  const forecast: { start: string; period_end: string; ovulation: string; fertile_from: string; fertile_to: string }[] = [];
+  for (let k = 1; k <= FORECAST_CYCLES; k++) {
+    const start = addDays(last.start_date, avg.len * k);
+    const ovulation = addDays(start, -LUTEAL_DAYS);
+    forecast.push({
+      start, period_end: addDays(start, avg.period - 1), ovulation,
+      fertile_from: addDays(ovulation, -FERTILE_BEFORE), fertile_to: addDays(ovulation, FERTILE_AFTER),
+    });
+  }
+
+  // «идут»: конец не отмечен и прошло не больше 10 дней, пока можно нажать «Закончились»
+  const ongoing = !last.end_date && today <= addDays(last.start_date, 9);
+  const day = Math.round((dayMs(today) - dayMs(last.start_date)) / DAY_MS) + 1;
+  const next = forecast[0];
+  // задержка: ожидаемая дата прошла, а новый цикл не начат
+  const delay = today > next.start ? Math.round((dayMs(today) - dayMs(next.start)) / DAY_MS) : 0;
+
+  let phase: string;
+  const periodEnd = last.end_date ?? addDays(last.start_date, avg.period - 1);
+  if (day < 1) phase = "future";
+  // если конец не отмечен, даём запас в два дня сверх обычной длины месячных
+  else if (today <= periodEnd || (ongoing && today <= addDays(periodEnd, 2))) phase = "period";
+  else if (delay > 0) phase = "delay";
+  else if (today === next.ovulation) phase = "ovulation";
+  else if (today > next.ovulation) phase = "luteal";
+  else phase = "follicular";
+
+  return { avg, last_start: last.start_date, forecast, delay_days: delay, day, phase, ongoing };
+}
+// END-CYCLE
+
+const CYCLE_FEELING = ["good", "ok", "bad"];
+const CYCLE_PAIN = ["none", "light", "strong"];
+const CYCLE_FLOW = ["light", "medium", "heavy"];
+const CYCLE_MOODS = ["calm", "happy", "irritable", "anxious", "sad", "tired", "energetic"];
+
 // ───────── действия ─────────
 const SETTINGS_FIELDS = [
   "shift_evening_on", "shift_evening_time", "shift_before_on", "shift_before_hours",
@@ -689,6 +753,140 @@ const actions: Record<string, Handler> = {
       .eq("id", reqId(p.id)).eq("user_id", ctx.target.id).not("archived_at", "is", null).select("id");
     if (error) throw new Error(error.message);
     if (!data?.length) throw new HttpError(400, "Сначала убери привычку в архив");
+    return { ok: true };
+  },
+
+  // ───────── цикл ─────────
+  // Данные за период для календаря, история циклов и прогноз одним запросом.
+  async "cycle.get"(ctx, p) {
+    await assertCycleAccess(ctx);
+    const { from, to } = reqRange(p);
+    const uid = ctx.target.id;
+    const today = localParts(new Date(), ctx.target.timezone).date;
+    const [cs, ns, st] = await Promise.all([
+      db.from("cycles").select("id, start_date, end_date").eq("user_id", uid)
+        .order("start_date", { ascending: false }).limit(12),
+      db.from("cycle_notes").select("note_date, feeling, pain, mood, flow, body").eq("user_id", uid)
+        .gte("note_date", from).lte("note_date", to),
+      db.from("user_settings").select("cycle_remind_days, cycle_typical_length, cycle_typical_period").eq("user_id", uid).single(),
+    ]);
+    const cycles = must(cs) as CycleRow[];
+    const s = st.data;
+    if (!s) throw new Error("Нет настроек пользователя");
+    return {
+      today,
+      cycles: [...cycles].reverse(),
+      notes: must(ns),
+      pred: cyclePredict(cycles, s.cycle_typical_length, s.cycle_typical_period, today),
+      settings: { remind_days: s.cycle_remind_days, typical_length: s.cycle_typical_length, typical_period: s.cycle_typical_period },
+    };
+  },
+
+  // «Начались»: новый цикл с этой даты. Если прошлые месячные остались открытыми, закрываем их.
+  async "cycle.start"(ctx, p) {
+    await assertCycleAccess(ctx);
+    const uid = ctx.target.id;
+    const today = localParts(new Date(), ctx.target.timezone).date;
+    const date = reqDate(p.date);
+    if (date > today) throw new HttpError(400, "Нельзя отметить дату из будущего");
+    if (date < addDays(today, -366)) throw new HttpError(400, "Слишком давняя дата");
+    const rows = must(await db.from("cycles").select("id, start_date, end_date").eq("user_id", uid)
+      .order("start_date", { ascending: false }).limit(24)) as CycleRow[];
+    if (rows.some((c) => c.start_date <= date && date <= (c.end_date ?? c.start_date))) {
+      throw new HttpError(400, "Эта дата уже входит в отмеченные месячные");
+    }
+    const { data: s } = await db.from("user_settings").select("cycle_typical_period").eq("user_id", uid).single();
+    const typical = s?.cycle_typical_period ?? 5;
+    const open = rows.find((c) => !c.end_date && c.start_date < date);
+    if (open) {
+      const end = addDays(open.start_date, typical - 1);
+      await db.from("cycles").update({ end_date: end < date ? end : addDays(date, -1) }).eq("id", open.id);
+    }
+    const { error } = await db.from("cycles").insert({ user_id: uid, start_date: date });
+    if (error) throw new HttpError(400, "Не получилось сохранить: " + error.message);
+    return { ok: true };
+  },
+
+  // «Закончились»: последний день месячных
+  async "cycle.end"(ctx, p) {
+    await assertCycleAccess(ctx);
+    const uid = ctx.target.id;
+    const today = localParts(new Date(), ctx.target.timezone).date;
+    const id = reqId(p.id);
+    const date = reqDate(p.date);
+    if (date > today) throw new HttpError(400, "Нельзя отметить дату из будущего");
+    const { data: c } = await db.from("cycles").select("id, start_date").eq("id", id).eq("user_id", uid).maybeSingle();
+    if (!c) throw new HttpError(404, "Цикл не найден");
+    if (date < c.start_date) throw new HttpError(400, "Конец раньше начала");
+    if ((dayMs(date) - dayMs(c.start_date)) / DAY_MS > 20) throw new HttpError(400, "Месячные не могут идти так долго");
+    const { data: later } = await db.from("cycles").select("start_date").eq("user_id", uid)
+      .gt("start_date", c.start_date).order("start_date").limit(1);
+    if (later?.length && date >= later[0].start_date) throw new HttpError(400, "Дата заходит на следующий цикл");
+    const { error } = await db.from("cycles").update({ end_date: date }).eq("id", id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  // правка дат уже записанного цикла
+  async "cycle.edit"(ctx, p) {
+    await assertCycleAccess(ctx);
+    const uid = ctx.target.id;
+    const today = localParts(new Date(), ctx.target.timezone).date;
+    const id = reqId(p.id);
+    const start = reqDate(p.start_date, "Начало");
+    const end = p.end_date ? reqDate(p.end_date, "Конец") : null;
+    if (start > today) throw new HttpError(400, "Нельзя отметить дату из будущего");
+    if (end && end < start) throw new HttpError(400, "Конец раньше начала");
+    if (end && end > today) throw new HttpError(400, "Нельзя отметить дату из будущего");
+    if (end && (dayMs(end) - dayMs(start)) / DAY_MS > 20) throw new HttpError(400, "Месячные не могут идти так долго");
+    const rows = must(await db.from("cycles").select("id, start_date, end_date").eq("user_id", uid)) as CycleRow[];
+    if (!rows.some((c) => c.id === id)) throw new HttpError(404, "Цикл не найден");
+    const hi = end ?? start;
+    for (const c of rows) {
+      if (c.id === id) continue;
+      if (start <= (c.end_date ?? c.start_date) && c.start_date <= hi) throw new HttpError(400, "Даты пересекаются с другим циклом");
+    }
+    const { error } = await db.from("cycles").update({ start_date: start, end_date: end }).eq("id", id).eq("user_id", uid);
+    if (error) throw new HttpError(400, "Не получилось сохранить: " + error.message);
+    return { ok: true };
+  },
+
+  async "cycle.delete"(ctx, p) {
+    await assertCycleAccess(ctx);
+    const { error } = await db.from("cycles").delete().eq("id", reqId(p.id)).eq("user_id", ctx.target.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  // заметка на день: самочувствие, боль, настроение, выделения, текст. Пустая заметка удаляется.
+  async "cycle.note"(ctx, p) {
+    await assertCycleAccess(ctx);
+    const uid = ctx.target.id;
+    const today = localParts(new Date(), ctx.target.timezone).date;
+    const date = reqDate(p.date);
+    if (date > today) throw new HttpError(400, "Нельзя добавить заметку на будущую дату");
+    const one = (v: unknown, allowed: string[], label: string) => {
+      if (v === null || v === undefined || v === "") return null;
+      if (!allowed.includes(String(v))) throw new HttpError(400, `${label}: неверное значение`);
+      return String(v);
+    };
+    const feeling = one(p.feeling, CYCLE_FEELING, "Самочувствие");
+    const pain = one(p.pain, CYCLE_PAIN, "Боль");
+    const flow = one(p.flow, CYCLE_FLOW, "Выделения");
+    const moodIn = Array.isArray(p.mood) ? p.mood.map(String) : [];
+    if (moodIn.some((m) => !CYCLE_MOODS.includes(m))) throw new HttpError(400, "Настроение: неверное значение");
+    const mood = [...new Set(moodIn)];
+    const body = reqText(p.body, "Заметка", 500, false);
+    if (!feeling && !pain && !flow && !mood.length && !body) {
+      const { error } = await db.from("cycle_notes").delete().eq("user_id", uid).eq("note_date", date);
+      if (error) throw new Error(error.message);
+      return { ok: true, removed: true };
+    }
+    const { error } = await db.from("cycle_notes").upsert(
+      { user_id: uid, note_date: date, feeling, pain, flow, mood, body },
+      { onConflict: "user_id,note_date" },
+    );
+    if (error) throw new HttpError(400, "Не получилось сохранить: " + error.message);
     return { ok: true };
   },
 

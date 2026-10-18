@@ -137,3 +137,20 @@ h3{margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-tran
 .tblock.work{background:var(--work);color:var(--work-ink)}
 .tblock.vac{background:var(--vac);color:var(--vac-ink)}
 .tblock.sick{background:var(--sick);color:var(--sick-ink)}
+
+/* ───────── цикл ───────── */
+.cyc .day{min-height:48px;justify-content:flex-start}
+.day.cper{background:var(--sick);color:var(--sick-ink)}
+.day.pper{border:1.5px dashed var(--sick-ink);color:var(--sick-ink)}
+.day.fert{background:var(--cycle);color:var(--cycle-ink)}
+.day.ovul .dn{box-shadow:inset 0 0 0 2px var(--cycle-ink)}
+.lgd{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);padding:0 4px}
+.lgd span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:14px;height:14px;border-radius:5px;display:inline-block;border:1.5px solid transparent}
+.sw.cper{background:var(--sick);border-color:var(--sick-ink)}
+.sw.pper{border:1.5px dashed var(--sick-ink)}
+.sw.fert{background:var(--cycle);border-color:var(--cycle-ink)}
+.sw.ovul{border-radius:50%;border-color:var(--cycle-ink)}
+.cyc-st .big{font-size:18px;font-weight:600}
+.hist{width:100%;background:none;border:0;text-align:left;color:var(--ink)}
+textarea.inp{resize:vertical}
