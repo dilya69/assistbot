@@ -109,7 +109,7 @@
     return card("Профиль", [
       el("div", { class: "fld" }, [el("span", { class: "lbl", text: "Как тебя называть" }), name]),
       el("div", { class: "fld", style: "margin-top:12px" }, [el("span", { class: "lbl", text: "Значок" }), avatars]),
-      el("div", { class: "sub", style: "margin-top:10px", text: "Имя и значок свои у каждого, вторая сторона их не меняет." }),
+      el("div", { class: "sub", style: "margin-top:10px", text: "Имечко, значок" }),
     ]);
   }
 
@@ -124,7 +124,7 @@
         t[1],
       ]);
     }));
-    return card("Оформление", [chips, el("div", { class: "sub", style: "margin-top:10px", text: "Тема выбирается отдельно для каждого из вас." })]);
+    return card("Оформление", [chips, el("div", { class: "sub", style: "margin-top:10px", text: "Темы там всякие" })]);
   }
 
   function shiftCard(s) {
@@ -198,7 +198,7 @@
   function membersCard(me) {
     var list = me.members || [];
     if (list.length < 2) return null;
-    return card("Вы вдвоём", [
+    return card("две котятки", [
       el("div", { class: "chips" }, list.map(function (m) {
         return el("span", { class: "chip" + (m.is_me ? " on" : ""), text: (m.avatar ? m.avatar + " " : "") + (m.name || "Без имени") + (m.is_me ? " (ты)" : "") });
       })),
