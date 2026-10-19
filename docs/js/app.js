@@ -85,52 +85,11 @@
     $("todayDate").textContent = DAYS[now.getDay()] + ", " + now.getDate() + " " + MONTHS[now.getMonth()];
   }
 
-  var THEMES = [["auto", "Как в Telegram"], ["light", "Светлая"], ["dark", "Тёмная"], ["thrones", "Королевства"], ["dead", "Выжившие"]];
-
+  // Сохранение для баннера часового пояса; остальные настройки живут в js/settings.js
   function saveSettings(patch, done) {
     api("settings.update", patch).then(function (me) {
       state.me = me; if (done) done(); haptic("light");
     }).catch(function (e) { toast(e.message); });
-  }
-
-  function renderSettings() {
-    var body = clear($("settingsBody"));
-    var u = state.me.user, s = state.me.settings, v = state.me.viewer;
-    var gap = el("div", { style: "display:flex;flex-direction:column;gap:14px" });
-
-    gap.appendChild(el("div", { class: "card" }, [
-      el("h3", { text: "Общие" }),
-      el("div", { class: "row" }, [el("span", { class: "grow", text: "Часовой пояс" }), el("span", { class: "sub", text: u.timezone })]),
-    ]));
-
-    var themeCard = el("div", { class: "card" }, [el("h3", { text: "Оформление" })]);
-    var wrap = el("div", { style: "display:flex;flex-wrap:wrap;gap:6px" });
-    THEMES.forEach(function (t) {
-      var b = el("button", { type: "button", class: "btn " + (s.theme === t[0] ? "" : "soft"), style: "padding:8px 14px", text: t[1],
-        onclick: function () {
-          applyTheme(t[0]); saveSettings({ theme: t[0] }, renderSettings);
-        } });
-      wrap.appendChild(b);
-    });
-    themeCard.appendChild(wrap);
-    gap.appendChild(themeCard);
-
-    // техническая карточка нужна только тому, кто помогает с настройкой (не владельцу данных)
-    if (v.role === "admin" && !v.is_self) gap.appendChild(adminCard());
-    body.appendChild(gap);
-  }
-
-  function adminCard() {
-    var card = el("div", { class: "card" }, [el("h3", { text: "Состояние бота" })]);
-    var out = el("div", { class: "sub", text: "Загрузка..." });
-    card.appendChild(out);
-    api("admin.status").then(function (st) {
-      clear(out);
-      out.appendChild(el("div", { text: "Последняя отправка: " + (st.last_sent_at ? new Date(st.last_sent_at).toLocaleString("ru-RU") : "ещё не было") }));
-      out.appendChild(el("div", { text: "Ошибок в журнале: " + st.errors.length }));
-      st.errors.slice(0, 3).forEach(function (e) { out.appendChild(el("div", { text: e.source + ": " + e.message })); });
-    }).catch(function (e) { out.textContent = e.message; });
-    return card;
   }
 
   function renderBanner() {
@@ -150,7 +109,7 @@
       b.appendChild(el("div", { class: "pill cyc", style: "margin:8px 16px 0" }, [
         "Часовой пояс устройства: " + dev + ". Обновить? ",
         el("button", { type: "button", class: "btn", style: "padding:4px 10px;margin-left:8px", text: "Да",
-          onclick: function () { saveSettings({ timezone: dev }, function () { renderBanner(); renderSettings(); }); } }),
+          onclick: function () { saveSettings({ timezone: dev }, function () { renderBanner(); if (window.App.renderSettings) window.App.renderSettings(); }); } }),
       ]));
     }
   }
@@ -170,7 +129,7 @@
   }
   window.App = {
     state: state, $: $, el: el, clear: clear, api: api, toast: toast, haptic: haptic, onReady: onReady,
-    go: go, onTab: onTab,
+    go: go, onTab: onTab, applyTheme: applyTheme, renderBanner: renderBanner,
     confirm: function (text, cb) {
       if (tg && tg.showConfirm) tg.showConfirm(text, function (ok) { if (ok) cb(); });
       else if (window.confirm(text)) cb();
@@ -181,7 +140,7 @@
     api("me").then(function (me) {
       state.me = me;
       applyTheme(me.settings.theme);
-      renderBanner(); renderToday(); renderSettings();
+      renderBanner(); renderToday();
       readyHandlers.forEach(function (fn) { fn(); });
     }).catch(function (e) { showFatal(e.message); });
   }

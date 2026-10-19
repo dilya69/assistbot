@@ -413,17 +413,77 @@ const CYCLE_FLOW = ["light", "medium", "heavy"];
 const CYCLE_MOODS = ["calm", "happy", "irritable", "anxious", "sad", "tired", "energetic"];
 
 // ───────── действия ─────────
+const THEMES = ["auto", "light", "dark", "thrones", "dead"];
+// общие настройки: лежат у владельца данных, меняют оба
 const SETTINGS_FIELDS = [
   "shift_evening_on", "shift_evening_time", "shift_before_on", "shift_before_hours",
   "cycle_remind_days", "cycle_neutral_text", "cycle_typical_length", "cycle_typical_period",
-  "cycle_lock", "cycle_share_partner", "theme",
+  "cycle_lock", "cycle_share_partner",
+];
+const CYCLE_SETTINGS = [
+  "cycle_remind_days", "cycle_neutral_text", "cycle_typical_length", "cycle_typical_period",
+  "cycle_lock", "cycle_share_partner",
 ];
 const USER_FIELDS = ["timezone", "quiet_on", "quiet_from", "quiet_to", "quiet_strict_shifts", "week_start", "paused_until"];
+// личное: имя, значок и тема хранятся у того, кто открыл приложение
+const PROFILE_FIELDS = ["display_name", "avatar", "theme"];
 
 function pick(src: Record<string, unknown>, keys: string[]) {
   const out: Record<string, unknown> = {};
   for (const k of keys) if (k in src) out[k] = src[k];
   return out;
+}
+
+// Проверка значений до записи в базу: понятная ошибка вместо ответа базы
+function cleanValues(v: Record<string, unknown>) {
+  const bad = (k: string) => new HttpError(400, "Неверное значение: " + k);
+  const bool = (k: string) => { if (typeof v[k] !== "boolean") throw bad(k); };
+  const int = (k: string, min: number, max: number) => {
+    const x = v[k];
+    if (typeof x !== "number" || !Number.isInteger(x) || x < min || x > max) throw bad(k);
+  };
+  const time = (k: string) => { if (typeof v[k] !== "string" || !TIME_RE.test(v[k] as string)) throw bad(k); };
+
+  for (const k of Object.keys(v)) {
+    switch (k) {
+      case "shift_evening_on": case "shift_before_on": case "quiet_on": case "quiet_strict_shifts":
+      case "cycle_neutral_text": case "cycle_lock": case "cycle_share_partner":
+        bool(k); break;
+      case "shift_evening_time": case "quiet_from": case "quiet_to":
+        time(k); break;
+      case "shift_before_hours": int(k, 1, 12); break;
+      case "cycle_remind_days": int(k, 0, 7); break;
+      case "cycle_typical_length": int(k, 20, 45); break;
+      case "cycle_typical_period": int(k, 1, 12); break;
+      case "week_start": int(k, 0, 1); break;
+      case "timezone":
+        try { new Intl.DateTimeFormat("en", { timeZone: String(v[k]) }); } catch { throw bad(k); }
+        break;
+      case "paused_until":
+        if (v[k] !== null) {
+          const ms = typeof v[k] === "string" ? Date.parse(v[k] as string) : NaN;
+          if (!Number.isFinite(ms) || ms > Date.now() + 400 * DAY_MS) throw bad(k);
+          v[k] = new Date(ms).toISOString();
+        }
+        break;
+      case "theme":
+        if (!THEMES.includes(String(v[k]))) throw bad(k);
+        break;
+      case "display_name": {
+        const t = v[k] === null ? "" : String(v[k]).trim();
+        if (t.length > 30) throw new HttpError(400, "Имя не длиннее 30 символов");
+        v[k] = t || null;
+        break;
+      }
+      case "avatar": {
+        const t = v[k] === null ? "" : String(v[k]).trim();
+        if ([...t].length > 4) throw bad(k);
+        v[k] = t || null;
+        break;
+      }
+    }
+  }
+  return v;
 }
 
 type Handler = (ctx: Ctx, p: Record<string, unknown>) => Promise<unknown>;
@@ -435,6 +495,17 @@ const actions: Record<string, Handler> = {
 
   async me(ctx) {
     const { data: settings } = await db.from("user_settings").select("*").eq("user_id", ctx.target.id).single();
+    const isSelf = ctx.actor.id === ctx.target.id;
+    // настройки цикла видны только тому, кому открыта вкладка «Цикл»
+    const out: Record<string, unknown> = { ...(settings ?? {}) };
+    if (!isSelf && !settings?.cycle_share_partner) for (const k of CYCLE_SETTINGS) delete out[k];
+    // оформление у каждого своё
+    out.theme = (ctx.actor.theme as string) ?? "auto";
+
+    const { data: people } = await db.from("users")
+      .select("id, first_name, display_name, avatar")
+      .or(`id.eq.${ctx.target.id},data_owner_id.eq.${ctx.target.id}`);
+
     return {
       user: {
         id: ctx.target.id, first_name: ctx.target.first_name, timezone: ctx.target.timezone,
@@ -442,14 +513,31 @@ const actions: Record<string, Handler> = {
         quiet_strict_shifts: ctx.target.quiet_strict_shifts, week_start: ctx.target.week_start,
         paused_until: ctx.target.paused_until, bot_blocked: ctx.target.bot_blocked,
       },
-      settings,
-      viewer: { role: ctx.actor.role, is_self: ctx.actor.id === ctx.target.id },
+      settings: out,
+      profile: {
+        first_name: ctx.actor.first_name,
+        display_name: (ctx.actor.display_name as string | null) ?? null,
+        avatar: (ctx.actor.avatar as string | null) ?? null,
+      },
+      members: (people ?? []).map((m) => ({
+        id: m.id, name: m.display_name ?? m.first_name, avatar: m.avatar ?? null, is_me: m.id === ctx.actor.id,
+      })),
+      viewer: { role: ctx.actor.role, is_self: isSelf },
     };
   },
 
   async "settings.update"(ctx, p) {
     const u = pick(p, USER_FIELDS);
     const s = pick(p, SETTINGS_FIELDS);
+    const me = pick(p, PROFILE_FIELDS);
+    cleanValues(u); cleanValues(s); cleanValues(me);
+
+    // настройки цикла: второму человеку только когда вкладка открыта, а обмен включает лишь владелец
+    if (Object.keys(s).some((k) => CYCLE_SETTINGS.includes(k))) await assertCycleAccess(ctx);
+    if ("cycle_share_partner" in s && ctx.actor.id !== ctx.target.id) {
+      throw new HttpError(403, "Доступ к циклу меняет только владелец");
+    }
+
     if (Object.keys(u).length) {
       const { error } = await db.from("users").update(u).eq("id", ctx.target.id);
       if (error) throw new HttpError(400, error.message);
@@ -457,6 +545,20 @@ const actions: Record<string, Handler> = {
     if (Object.keys(s).length) {
       const { error } = await db.from("user_settings").update(s).eq("user_id", ctx.target.id);
       if (error) throw new HttpError(400, error.message);
+    }
+    if (Object.keys(me).length) {
+      const { error } = await db.from("users").update(me).eq("id", ctx.actor.id);
+      if (error) throw new HttpError(400, error.message);
+    }
+    // берём свежие строки: правки общих полей у владельца, личных у того, кто открыл приложение
+    if (Object.keys(u).length || Object.keys(me).length) {
+      const { data: a } = await db.from("users").select("*").eq("id", ctx.actor.id).single();
+      if (a) ctx.actor = a as DbUser;
+      if (ctx.actor.id === ctx.target.id) ctx.target = ctx.actor;
+      else {
+        const { data: t } = await db.from("users").select("*").eq("id", ctx.target.id).single();
+        if (t) ctx.target = t as DbUser;
+      }
     }
     return actions.me(ctx, {});
   },
