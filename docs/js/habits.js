@@ -12,19 +12,84 @@
   }
   var el = App.el, clear = App.clear, api = App.api, toast = App.toast, ui = App.ui;
 
-  /* Фразы за вехи и после срыва. Тон пока нейтральный: тексты можно спокойно менять здесь.
-     Ключ вехи: сколько дней в серии. */
-  var PHRASES = {
-    doMilestone: {
-      3: "Три дня подряд.", 7: "Неделя подряд.", 14: "Две недели подряд.", 21: "Три недели подряд.",
-      30: "Месяц подряд.", 60: "Два месяца подряд.", 100: "Сто дней подряд.",
+  /* Фразы за вехи и после срыва: тексты можно спокойно менять здесь.
+     Ключ вехи: сколько дней в серии. Дальше 365 дней фраза собирается сама на каждой сотне. */
+  var MILESTONES = {
+    "do": {
+      3: "Ого, три дня подряд, ты уумничкаа",
+      7: "Уже целая неделя!",
+      14: "Две недели!!!",
+      21: "Три недели юхуу",
+      30: "Уже целый месяц, солнышко!",
+      60: "Два месяца подряд!",
+      100: "Сто дней подряд, роднулечка!",
+      150: "Полтораста дней подряд! Ты огонь, солнышко!",
+      200: "Двести дней подряд, роднулечка, я в шоке (в хорошем смысле)!",
+      250: "Двести пятьдесят дней подряд! Ты просто космос!",
+      300: "Триста дней подряд, малыш, это уже характер!",
+      365: "Целый год подряд! Я тобой невероятно горжусь, солнышко!",
     },
-    avoidMilestone: {
-      3: "Три дня без срыва.", 7: "Неделя без срыва.", 14: "Две недели без срыва.", 21: "Три недели без срыва.",
-      30: "Месяц без срыва.", 60: "Два месяца без срыва.", 100: "Сто дней без срыва.",
+    "avoid": {
+      3: "Три дня без срыва, хорошоооо",
+      7: "Неделя без срыва!",
+      14: "Целых 2 недели без срыва!",
+      21: "Три недели без срыва, я тебе отсоняю!",
+      30: "Месяц без срыва 🛐",
+      60: "Два месяца без срыва ааа!!!",
+      100: "Сто дней без срыва одним, сонянием не передать!",
+      150: "Полтораста дней без срыва, коть, ты огонь!",
+      200: "Двести дней без срыва, ааа, я горжусь!",
+      250: "Двести пятьдесят дней без срыва, солнце, ты космос!",
+      300: "Триста дней без срыва, малыш, это уже сила воли!",
+      365: "Целый год без срыва! Я тобой невероятно горжусь!",
     },
-    slip: "Отмечено. Счёт начнётся заново.",
   };
+  var SLIPS = [
+    "Отмечено. Счёт начнётся заново.",
+    "Ничего, коть, главное, что ты стараешься!",
+    "У самурая нет цели, лишь путь!",
+    "Маленькие победы это тоже победы, солнце",
+    "Главное не сдаваться, малыш, я тобой горжусь!",
+  ];
+  var lastSlip = -1;
+
+  var PHRASES = {
+    // фраза за веху или null, если сегодня не веха
+    milestone: function (kind, n) {
+      var k = kind === "avoid" ? "avoid" : "do";
+      if (MILESTONES[k][n]) return MILESTONES[k][n];
+      if (n > 365 && n % 100 === 0) {
+        return k === "avoid" ? n + " дней без срыва! Ты просто космос, малыш!" : n + " дней подряд! Я тобой горжусь, солнышко!";
+      }
+      return null;
+    },
+    // случайная фраза после срыва, два раза подряд одна и та же не выпадает
+    slip: function () {
+      var i;
+      do { i = Math.floor(Math.random() * SLIPS.length); } while (SLIPS.length > 1 && i === lastSlip);
+      lastSlip = i;
+      return SLIPS[i];
+    },
+  };
+
+  // «Не делать»: серия растёт сама, отметки нет, поэтому поздравляем, когда открыли приложение в день вехи.
+  // Запоминаем, о какой вехе уже сказали, чтобы не повторять при каждом открытии.
+  var celebrated = {};
+  function celebrate(list) {
+    if (readOnly()) return;
+    var text = null;
+    (list || []).forEach(function (h) {
+      if (h.kind !== "avoid" || !h.streak) return;
+      var phrase = PHRASES.milestone("avoid", h.streak);
+      if (!phrase) return;
+      var key = "ms:" + h.id + ":" + h.streak;
+      if (celebrated[key]) return;
+      celebrated[key] = true;
+      try { if (localStorage.getItem(key)) return; localStorage.setItem(key, "1"); } catch (e) {}
+      text = phrase;
+    });
+    if (text) toast(text);
+  }
 
   var WD_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]; // 1 = понедельник, как в базе
   var WD_JS = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
@@ -51,6 +116,7 @@
       if (id !== H.req) return;
       H.data = d; H.at = Date.now();
       render();
+      celebrate(d.habits);
     }).catch(function (e) {
       if (id !== H.req) return;
       H.err = e.message;
@@ -163,10 +229,10 @@
     var before = h.streak;
     ui.run(null, function () { return api("habits.mark", { id: h.id, date: date, status: status }); }, function () {
       return load().then(function () {
-        if (status === "slip") return toast(PHRASES.slip);
+        if (status === "slip") return toast(PHRASES.slip());
         if (status !== "done") return;
         var now = H.data.habits.filter(function (x) { return x.id === h.id; })[0];
-        var phrase = now && now.streak > before && PHRASES.doMilestone[now.streak];
+        var phrase = now && now.streak > before && PHRASES.milestone("do", now.streak);
         if (phrase) toast(phrase);
       });
     });
@@ -294,7 +360,7 @@
   });
 
   // для экрана «Сегодня» (js/today.js): общие фразы и обновление этой вкладки после отметок
-  App.habits = { reload: load, phrases: PHRASES };
+  App.habits = { reload: load, phrases: PHRASES, celebrate: celebrate };
 
   App.onReady(function () {
     H.data = null; H.err = null;

@@ -37,6 +37,7 @@
       if (id !== T.req) return;
       T.data = r; T.at = Date.now();
       render();
+      if (App.habits && App.habits.celebrate) App.habits.celebrate(r.h.habits);
     }).catch(function (e) {
       if (id !== T.req) return;
       T.err = e.message;
@@ -174,10 +175,10 @@
       return load().then(function () {
         var P = App.habits && App.habits.phrases;
         if (!P) return;
-        if (status === "slip") return toast(P.slip);
+        if (status === "slip") return toast(P.slip());
         if (status !== "done") return;
         var now = T.data.h.habits.filter(function (x) { return x.id === h.id; })[0];
-        var phrase = now && now.streak > before && P.doMilestone[now.streak];
+        var phrase = now && now.streak > before && P.milestone("do", now.streak);
         if (phrase) toast(phrase);
       });
     });
