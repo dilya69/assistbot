@@ -95,22 +95,57 @@
   }
 
   /* ───────── блоки ───────── */
-  function profileCard(me) {
+  var editingProfile = false;
+
+  function tgUser() {
+    var tg = window.Telegram && window.Telegram.WebApp;
+    return (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
+  }
+
+  // кружок: выбранный значок, иначе фото из Telegram, иначе первая буква имени
+  function avatarNode(p, shownName, big) {
+    var cls = "ava" + (big ? " big" : "");
+    var u = tgUser();
+    var letter = (shownName || "?").trim().charAt(0).toUpperCase() || "?";
+    if (p.avatar) return el("div", { class: cls + " emo", text: p.avatar });
+    if (u.photo_url) {
+      var img = el("img", { class: "ava-img", src: u.photo_url, alt: "" });
+      var box = el("div", { class: cls }, [img]);
+      img.addEventListener("error", function () { clear(box); box.classList.add("ltr"); box.textContent = letter; });
+      return box;
+    }
+    return el("div", { class: cls + " ltr", text: letter });
+  }
+
+  function profileHero(me) {
     var p = me.profile;
-    var name = el("input", { type: "text", class: "inp", maxlength: "30", placeholder: p.first_name || "Имя", value: p.display_name || "" });
-    name.addEventListener("change", function () { save({ display_name: name.value.trim() || null }); });
+    var u = tgUser();
+    var shown = p.display_name || p.first_name || "Без имени";
+    var kids = [
+      avatarNode(p, shown, true),
+      el("div", { class: "hero-name", text: shown }),
+    ];
+    if (u.username) kids.push(el("div", { class: "sub", text: "@" + u.username }));
+    kids.push(el("button", {
+      type: "button", class: "btn soft hero-edit", text: editingProfile ? "Готово" : "Изменить профиль",
+      onclick: function () { editingProfile = !editingProfile; render(); },
+    }));
 
-    var avatars = el("div", { class: "chips" }, [
-      el("button", { type: "button", class: "chip" + (p.avatar ? "" : " on"), text: "Без значка", onclick: function () { save({ avatar: null }); } }),
-    ].concat(AVATARS.map(function (a) {
-      return el("button", { type: "button", class: "chip" + (p.avatar === a ? " on" : ""), text: a, onclick: function () { save({ avatar: a }); } });
-    })));
-
-    return card("Профиль", [
-      el("div", { class: "fld" }, [el("span", { class: "lbl", text: "Как тебя называть" }), name]),
-      el("div", { class: "fld", style: "margin-top:12px" }, [el("span", { class: "lbl", text: "Значок" }), avatars]),
-      el("div", { class: "sub", style: "margin-top:10px", text: "Имечко, значок" }),
-    ]);
+    if (editingProfile) {
+      var name = el("input", { type: "text", class: "inp", maxlength: "30", placeholder: p.first_name || "Имя", value: p.display_name || "" });
+      name.addEventListener("change", function () { save({ display_name: name.value.trim() || null }); });
+      var avatars = el("div", { class: "chips" }, [
+        el("button", { type: "button", class: "chip" + (p.avatar ? "" : " on"), text: u.photo_url ? "Фото из Telegram" : "Первая буква", onclick: function () { save({ avatar: null }); } }),
+      ].concat(AVATARS.map(function (a) {
+        return el("button", { type: "button", class: "chip" + (p.avatar === a ? " on" : ""), text: a, onclick: function () { save({ avatar: a }); } });
+      })));
+      kids.push(el("div", { class: "hero-edit-box" }, [
+        el("div", { class: "fld" }, [el("span", { class: "lbl", text: "Имя" }), name,
+          el("span", { class: "sub", text: p.first_name ? "Если оставить пустым, будет «" + p.first_name + "» из Telegram" : "Пока пусто" })]),
+        el("div", { class: "fld", style: "margin-top:12px" }, [el("span", { class: "lbl", text: "Значок" }), avatars]),
+      ]));
+    }
+    return el("div", { class: "hero" }, kids);
   }
 
   function themeCard(me) {
@@ -124,7 +159,7 @@
         t[1],
       ]);
     }));
-    return card("Оформление", [chips, el("div", { class: "sub", style: "margin-top:10px", text: "Темы там всякие" })]);
+    return card("Оформление", [chips]);
   }
 
   function shiftCard(s) {
@@ -225,7 +260,7 @@
     if (!me) return;
     var body = clear(App.$("settingsBody"));
     var wrap = el("div", { style: "display:flex;flex-direction:column;gap:14px" });
-    [profileCard(me), themeCard(me), shiftCard(me.settings), quietCard(me.user), generalCard(me.user), cycleCard(me), membersCard(me)]
+    [profileHero(me), themeCard(me), shiftCard(me.settings), quietCard(me.user), generalCard(me.user), cycleCard(me), membersCard(me)]
       .forEach(function (c) { if (c) wrap.appendChild(c); });
     // журнал бота нужен тому, кто помогает с настройкой, а не владельцу данных
     if (me.viewer.role === "admin" && !me.viewer.is_self) wrap.appendChild(adminCard());
