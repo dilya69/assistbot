@@ -413,7 +413,7 @@ const CYCLE_FLOW = ["light", "medium", "heavy"];
 const CYCLE_MOODS = ["calm", "happy", "irritable", "anxious", "sad", "tired", "energetic"];
 
 // ───────── действия ─────────
-const THEMES = ["auto", "light", "dark", "thrones", "dead"];
+const THEMES = ["auto", "light", "dark", "thrones", "dead", "newyear"];
 // общие настройки: лежат у владельца данных, меняют оба
 const SETTINGS_FIELDS = [
   "shift_evening_on", "shift_evening_time", "shift_before_on", "shift_before_hours",
