@@ -69,7 +69,7 @@
    Картинки встроены как SVG, анимации только на transform / мелких слоях.
    ============================================================ */
 :root[data-theme="newyear"]{
-  --bg:#0b1230; --surface:#162048; --ink:#EEF3FF; --muted:#9FB0D8; --line:#2B3B72;
+  --bg:#0b1230; --surface:#162048; --ink:#EEF3FF; --muted:#BCCAEA; --line:#2B3B72;
   --work:#1F5C46;  --work-ink:#C9F2DA;
   --vac:#28507E;   --vac-ink:#C3DEFB;
   --sick:#6B2C3A;  --sick-ink:#F8C9D1;
@@ -209,3 +209,21 @@
   :root[data-theme="newyear"] .cal-wd::after,
   :root[data-theme="newyear"] .nav button[aria-current="page"]::after{animation:none}
 }
+
+/* Подписи, которые лежат прямо на небе (вне карточек): светлее и с тёмным ореолом, чтобы не терялись среди снега и звёзд */
+:root[data-theme="newyear"] .hd small,
+:root[data-theme="newyear"] .tsec-hd h3,
+:root[data-theme="newyear"] .tsec-hd .cnt,
+:root[data-theme="newyear"] .lgd,
+:root[data-theme="newyear"] .empty,
+:root[data-theme="newyear"] .empty b,
+:root[data-theme="newyear"] .empty span,
+:root[data-theme="newyear"] .cal-title,
+:root[data-theme="newyear"] .view > h3,
+:root[data-theme="newyear"] .view > .sub{
+  color:#D5DFF7;
+  text-shadow:0 0 3px #060b24,0 0 6px #060b24,0 0 10px #060b24,0 1px 2px #060b24;
+}
+:root[data-theme="newyear"] .tsec-hd .cnt.full{color:#7BE3A3}
+:root[data-theme="newyear"] .empty b,
+:root[data-theme="newyear"] .cal-title{color:#FFFFFF}
